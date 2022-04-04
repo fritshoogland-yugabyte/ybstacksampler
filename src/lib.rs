@@ -3,7 +3,7 @@ use std::sync::mpsc::channel;
 use scraper::{ElementRef, Html, Selector};
 use reqwest::blocking;
 use regex::Regex;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use port_scanner::scan_port_addr;
 use std::time::{Duration, Instant};
 use std::thread;
@@ -25,21 +25,59 @@ pub fn sample_servers(
     port_vec: &Vec<&str>,
     update_interval: u64,
 ) {
-    let mut threads: Arc<Mutex<BTreeMap<String, u64>>> = Default::default();
+    let mut threads: Arc<Mutex<BTreeMap<(String, String), u64>>> = Default::default();
+
+    let mut excluded_stacks: HashSet<&str> = HashSet::new();
+    // raft [worker], consensus [worker], prepare [worker]
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();yb::ThreadPool::DispatchThread();__pthread_cond_timedwait");
+    // prepare [worker], append [worker], log-alloc [worker], MaintenanceMgr [worker]
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();yb::ThreadPool::DispatchThread();__pthread_cond_wait");
+    // flush scheduler bgtask
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();yb::BackgroundTask::Run();yb::BackgroundTask::WaitForJob();std::__1::condition_variable::wait();__pthread_cond_wait");
+    // rpc_tp_Master-high-pri, rpc_tp_Master, rpc_tp_TabletServer-high-pri, rpc_tp_TabletServer, priority-worker
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();std::__1::condition_variable::wait();__pthread_cond_wait");
+    // rb-session-expx
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();yb::tserver::RemoteBootstrapServiceImpl::EndExpiredSessions();yb::CountDownLatch::WaitFor();yb::ConditionVariable::WaitUntil();__pthread_cond_timedwait");
+    // maintenance_scheduler
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();yb::MaintenanceManager::RunSchedulerThread();std::__1::condition_variable::__do_timed_wait();__pthread_cond_timedwait");
+    // iotp_call_home, iotp_Master
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();yb::rpc::IoThreadPool::Impl::Execute();__GI_epoll_wait");
+    // iotp_Master
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();yb::rpc::IoThreadPool::Impl::Execute();__pthread_cond_wait");
+    //  bgtasks
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();yb::master::CatalogManagerBgTasks::Run();yb::master::CatalogManagerBgTasks::Wait();yb::ConditionVariable::TimedWait();__pthread_cond_timedwait");
+    //  acceptor
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();yb::rpc::Acceptor::RunThread();ev_run;epoll_poll;__GI_epoll_wait");
+    // Master_reactor, TabletServer_reactor, RedisServer_reactor, CQLServer_reactor
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();yb::rpc::Reactor::RunThread();ev_run;epoll_poll;__GI_epoll_wait");
+    // rocksdb:high:0x
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();std::__1::__function::__func&lt;&gt;::operator()();__pthread_cond_wait");
+    // rb-session-expx
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();yb::tserver::RemoteBootstrapServiceImpl::EndExpiredSessions();yb::ConditionVariable::WaitUntil();__pthread_cond_timedwait");
+    // iotp_call_home, iotp_TabletServer
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();yb::rpc::IoThreadPool::Impl::Execute();boost::asio::detail::scheduler::run();__GI_epoll_wait");
+    // iotp_TabletServer
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();yb::rpc::IoThreadPool::Impl::Execute();boost::asio::detail::scheduler::run();__pthread_cond_wait");
+    // heartbeat
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();yb::tserver::Heartbeater::Thread::RunThread();__pthread_cond_timedwait");
+    // pg_supervisor
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();yb::pgwrapper::PgSupervisor::RunThread();yb::Subprocess::DoWait();__GI___waitpid");
+    // flush scheduler bgtask
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();yb::BackgroundTask::Run();std::__1::condition_variable::wait();__pthread_cond_wait");
 
     {
         let threads = Arc::clone(&threads);
         ctrlc::set_handler(move || {
-            //println!("{:#?}", &*(threads.lock().unwrap()));
-            for (stack, nr) in &*(threads.lock().unwrap()) {
-                println!("{} {}", stack, nr);
+            for ((hostname_port, stack), nr) in &*(threads.lock().unwrap()) {
+                if ! excluded_stacks.contains(&stack.as_str()) {
+                    println!("{};{} {}", hostname_port, stack, nr);
+                };
             };
             process::exit(0);
         }).expect("Error setting ctrl-c handler");
     }
 
     loop {
-    //for _ in 0..20 {
         let wait_time_ms = Duration::from_millis(update_interval);
         let start_time = Instant::now();
         perform_threads_snapshot(&hostname_vec, &port_vec, 1, &mut threads );
@@ -48,17 +86,13 @@ pub fn sample_servers(
         thread::sleep( time_to_wait);
     }
 
-    for (stack, nr) in &*(threads.lock().unwrap()) {
-        println!("{} {}", stack, nr);
-    }
-    //println!("{:#?}", threads);
 }
 
 fn perform_threads_snapshot(
     hostname_vec: &Vec<&str>,
     port_vec: &Vec<&str>,
     parallel: usize,
-    threads_hashmap: &mut Arc<Mutex<BTreeMap<String, u64>>>,
+    threads_hashmap: &mut Arc<Mutex<BTreeMap<(String, String), u64>>>,
 ) {
     let pool = ThreadPoolBuilder::new().num_threads(parallel).build().unwrap();
     let (tx, rx) = channel();
@@ -77,9 +111,10 @@ fn perform_threads_snapshot(
 
     for (hostname_port, threads) in rx {
         for thread in threads {
-            let key=format!("{};{}", hostname_port, thread.stack);
+            //let key= format!("{};{}", hostname_port, thread.stack);
+            //let key= format!("{};{}", hostname_port, thread.stack);
             let mut threads_hashmap = threads_hashmap.lock().unwrap();
-            let counter = threads_hashmap.entry(key).or_insert(0);
+            let counter = threads_hashmap.entry((hostname_port.clone(), thread.stack)).or_insert(0);
             *counter+=1;
         }
     }
@@ -89,7 +124,7 @@ fn read_threads(
     hostname: &str
 ) -> Vec<Threads> {
     if ! scan_port_addr( hostname ) {
-        println!("Warning: hostname:port {} cannot be reached, skipping", hostname.to_string());
+        eprintln!("Warning: hostname:port {} cannot be reached, skipping", hostname.to_string());
         return Vec::new();
     }
     if let Ok(data_from_http) = blocking::get(format!("http://{}/threadz?group=all", hostname.to_string())) {
