@@ -38,8 +38,8 @@ pub fn sample_servers(
         }).expect("Error setting ctrl-c handler");
     }
 
-    //loop {
-    for _ in 0..20 {
+    loop {
+    //for _ in 0..20 {
         let wait_time_ms = Duration::from_millis(update_interval);
         let start_time = Instant::now();
         perform_threads_snapshot(&hostname_vec, &port_vec, 1, &mut threads );

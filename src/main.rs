@@ -8,7 +8,7 @@ struct Opts {
     /// ports numbers, comma separated. master:7000, tserver:9000
     #[structopt(short, long, default_value = "7000,9000")]
     ports: String,
-    /// update interval (s)
+    /// update interval (ms)
     #[structopt(short, long, default_value = "500")]
     update: u64,
 }
