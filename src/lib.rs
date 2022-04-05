@@ -24,6 +24,7 @@ pub fn sample_servers(
     hostname_vec: &Vec<&str>,
     port_vec: &Vec<&str>,
     update_interval: u64,
+    parallel: usize,
 ) {
     let mut threads: Arc<Mutex<BTreeMap<(String, String), u64>>> = Default::default();
 
@@ -80,7 +81,7 @@ pub fn sample_servers(
     loop {
         let wait_time_ms = Duration::from_millis(update_interval);
         let start_time = Instant::now();
-        perform_threads_snapshot(&hostname_vec, &port_vec, 1, &mut threads );
+        perform_threads_snapshot(&hostname_vec, &port_vec, parallel, &mut threads );
         let time_to_wait= wait_time_ms.checked_sub(start_time.elapsed()).unwrap_or(wait_time_ms);
         //print!(".");
         thread::sleep( time_to_wait);
