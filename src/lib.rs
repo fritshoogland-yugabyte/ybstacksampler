@@ -25,6 +25,7 @@ pub fn sample_servers(
     port_vec: &Vec<&str>,
     update_interval: u64,
     parallel: usize,
+    disable_hostport_addition: bool,
 ) {
     let mut threads: Arc<Mutex<BTreeMap<(String, String), u64>>> = Default::default();
 
@@ -52,7 +53,7 @@ pub fn sample_servers(
     // Master_reactor, TabletServer_reactor, RedisServer_reactor, CQLServer_reactor
     excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();yb::rpc::Reactor::RunThread();ev_run;epoll_poll;__GI_epoll_wait");
     // rocksdb:high:0x
-    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();std::__1::__function::__func&lt;&gt;::operator()();__pthread_cond_wait");
+    excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();std::__1::__function::__func<>::operator()();__pthread_cond_wait");
     // rb-session-expx
     excluded_stacks.insert("__clone;start_thread;yb::Thread::SuperviseThread();yb::tserver::RemoteBootstrapServiceImpl::EndExpiredSessions();yb::ConditionVariable::WaitUntil();__pthread_cond_timedwait");
     // iotp_call_home, iotp_TabletServer
@@ -71,7 +72,11 @@ pub fn sample_servers(
         ctrlc::set_handler(move || {
             for ((hostname_port, stack), nr) in &*(threads.lock().unwrap()) {
                 if ! excluded_stacks.contains(&stack.as_str()) {
-                    println!("{};{} {}", hostname_port, stack, nr);
+                    if disable_hostport_addition {
+                        println!("{} {}", &stack, nr);
+                    } else {
+                        println!("{};{} {}", hostname_port, stack, nr);
+                    };
                 };
             };
             process::exit(0);
@@ -83,7 +88,6 @@ pub fn sample_servers(
         let start_time = Instant::now();
         perform_threads_snapshot(&hostname_vec, &port_vec, parallel, &mut threads );
         let time_to_wait= wait_time_ms.checked_sub(start_time.elapsed()).unwrap_or(wait_time_ms);
-        //print!(".");
         thread::sleep( time_to_wait);
     }
 

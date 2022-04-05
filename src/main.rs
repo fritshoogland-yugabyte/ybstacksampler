@@ -14,6 +14,9 @@ struct Opts {
     /// parallel threads
     #[structopt(long, default_value = "4")]
     parallel: usize,
+    /// disable host:port addition
+    #[structopt(short, long)]
+    disable_hostport_addition: bool
 }
 
 fn main() {
@@ -23,7 +26,8 @@ fn main() {
     let port_vec: Vec<&str> = options.ports.split(",").collect();
     let update_interval: u64 = options.update;
     let parallel: usize = options.parallel;
+    let disable_hostport_addition: bool = options.disable_hostport_addition;
 
-    ybstacksampler::sample_servers( &hostname_vec, &port_vec, update_interval, parallel );
+    ybstacksampler::sample_servers( &hostname_vec, &port_vec, update_interval, parallel, disable_hostport_addition );
 
 }

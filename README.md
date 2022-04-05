@@ -36,14 +36,15 @@ In order to give full visibility to thread activity, all known idle stacks are n
 # usage
 These are the current options for ybstacksampler:
 ```
-ybstacksampler 0.1.0
+ybstacksampler 0.2.0
 
 USAGE:
-    ybstacksampler [OPTIONS]
+    ybstacksampler [FLAGS] [OPTIONS]
 
 FLAGS:
-        --help       Prints help information
-    -V, --version    Prints version information
+    -d, --disable-hostport-addition    disable host:port addition
+        --help                         Prints help information
+    -V, --version                      Prints version information
 
 OPTIONS:
     -h, --hosts <hosts>          hostnames, comma separated [default: 192.168.66.80,192.168.66.81,192.168.66.82]
