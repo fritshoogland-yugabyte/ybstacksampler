@@ -29,7 +29,7 @@ The utility outputs the hostname:port and callstack combinations with its count:
 192.168.66.82:9000;__clone;start_thread;yb::Thread::SuperviseThread();yb::ThreadPool::DispatchThread();yb::TaskStream&lt;&gt;::Run();yb::log::Log::Appender::ProcessBatch();yb::log::Log::DoAppend();__writev 1
 ```
 These are collapsed stacks for Brendan Greggs flamegraphs (https://github.com/brendangregg/FlameGraph.git), which with a flamegraph can be created:
-[flamegraph](./fg3.svg)
+[flamegraph](./fg4.svg)
 
 In order to give full visibility to thread activity, all known idle stacks are not printed by the ybstacksampler utility. The known idle stacks can be seen in the source: function sample_servers, HashSet excluded_stacks.
 
